@@ -7,7 +7,7 @@ Developed by Joseph T. Foley <foley at RU dot IS>
 Started 2019-01-02
 
 Package dependencies
-  ubuntu: python-requests ffmpeg python-pymediainfo mediainfo
+  ubuntu: python-requests ffmpeg
   pip: timecode
 """
 
@@ -20,7 +20,8 @@ import itertools
 
 import logging
 import argparse
-from pymediainfo import MediaInfo
+
+import timecode ## Have to get from pip
 
 if __name__ == '__main__':
     # http://stackoverflow.com/questions/8299270/ultimate-answer-to-relative-python-imports
@@ -56,55 +57,46 @@ class PrepVideoTool(object):
         self.log.debug("Console logging level at %s", cloglevel)
 
         # Examine the arguments
-        self.infiles = args.infile
+        # create a data structure for the relevant video files
+        self.fileinfo = {}
+        for file_path in args.infile:
+            self.fileinfo[file_path] = {'file_path': file_path}
 
-    def getvideolengths(self, tool="ffprobe"):
-        """Examine some videos and get their lengths.
-        Return as a list
-        Option tool: ffprobe to get timecode style lengths
-                     mediainfo to get millisecond lengths
+    def getvideoinfo(self):
+        """Examine some videos and get useful informatin into the self.fileinfo dictionary.
         We assume there is only one video stream per file"""
         #https://stackoverflow.com/questions/3844430/how-to-get-the-duration-of-a-video-in-python
-        vid_lengths = []
-        if tool == "mediainfo":
-            for filename in self.infiles:
-                media_info = MediaInfo.parse(filename)
-                vid_lengths.append(media_info.tracks[0].duration)
-        elif tool == "ffprobe":
-            duration_re = re.compile(r'Duration: ([\d\:\.]+),')
-        
-            for filename in self.infiles:
-                result = subprocess.Popen(
-                    ["ffprobe", filename],
-                    stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
-                result_lines = result.stdout.readlines()
-                duration_lines = [x for x in result_lines if "Duration" in x]
-                match_obj = duration_re.search(duration_lines[0])
-                vid_lengths.append(match_obj.group(1))
-                
-        return vid_lengths
-
-    def getvideofps(self):
-        """Get the fps values for using with timecode math"""
+        duration_re = re.compile(r'Duration: ([\d\:\.]+),')
         fps_re = re.compile(r'([\d]+) fps')
-        fps_vals = []
-        for filename in self.infiles:
+        
+        for filename in self.fileinfo.keys():
             result = subprocess.Popen(
                 ["ffprobe", filename],
                 stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
             result_lines = result.stdout.readlines()
+            duration_lines = [x for x in result_lines if "Duration" in x]
+            match_obj = duration_re.search(duration_lines[0])
+            vlen = match_obj.group(1)
             fps_lines = [x for x in result_lines if "fps" in x]
             match_obj = fps_re.search(fps_lines[0])
-            fps_vals.append(match_obj.group(1))
-
-        return fps_vals
-
+            fps = match_obj.group(1)
+            self.fileinfo[filename] = {'timecode': timecode.Timecode(fps, vlen)}
+        
+            
     def calcvideomin(self):
         """Figure out which video is shortest"""
-        lenfps = itertools.izip(self.getvideolengths(), self.getvideofps())
-        for fps, vlen in lenfps:
-            self.log.debug("Video len: %s, Video %s", fps, vlen)
+        self.getvideoinfo()
+        minfilename = None
+        mintimecode = timecode.Timecode("30", "23:59:59:59")
+        for filename in self.fileinfo.keys():
+            mytimecode = self.fileinfo[filename]['timecode']
+            self.log.info("file: %s, timecode: %s", filename, mytimecode)
+            if mytimecode < mintimecode:
+                self.log.info('smaller than %s')
+                minfilename = filename
+                mintimecode = mytimecode
 
+        self.log.info("Minimum file: %s, timecode: %s", minfilename, mintimecode)
 
 if __name__ == '__main__':
     PARSER = argparse.ArgumentParser(
