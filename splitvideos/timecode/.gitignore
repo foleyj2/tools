@@ -1,0 +1,13 @@
+*~*
+*.pyc
+.DS_Store
+.coverage
+*.egg-info/*
+*.swp
+docs/html/*
+docs/latex/*
+docs/doctrees/*
+docs/source/generated/*
+dist/*
+build/*
+include/*
